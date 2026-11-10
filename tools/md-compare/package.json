@@ -1,0 +1,10 @@
+{
+  "name": "car-md-compare",
+  "version": "1.0.0",
+  "description": "Key-matched comparison of California Revealed metadata spreadsheets (Google Apps Script)",
+  "scripts": {
+    "test": "node test/test.js"
+  },
+  "license": "MIT",
+  "private": true
+}

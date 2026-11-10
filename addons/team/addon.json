@@ -1,0 +1,15 @@
+{
+  "name": "CA-R Tools",
+  "audience": "Whole CA-R team",
+  "sources": [
+    "shared/SharedDrive.js",
+    "tools/md-compare/src/Headers.js",
+    "tools/md-compare/src/Code.js",
+    "tools/md-compare/src/Dialog.html",
+    "tools/highlight-repeated-ids/HighlightRepeatedIds.js",
+    "tools/highlight-repeated-ids/HighlightRepeatedIds.html",
+    "addons/team/Config.js",
+    "addons/team/Menu.js"
+  ],
+  "manifest": "addons/team/appsscript.json"
+}

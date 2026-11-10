@@ -1,0 +1,13 @@
+{
+  "name": "car-sheets-addons",
+  "version": "1.0.0",
+  "description": "California Revealed internal Google Sheets add-ons: CA-R Tools (whole team) and CA-R DG Tools (DG team)",
+  "private": true,
+  "license": "MIT",
+  "scripts": {
+    "test": "node test/run.js",
+    "build": "node build.js",
+    "build:team": "node build.js team",
+    "push:team": "node build.js team && cd dist/team && clasp push"
+  }
+}

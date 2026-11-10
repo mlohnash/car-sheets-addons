@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <link rel="stylesheet" href="https://ssl.gstatic.com/docs/script/css/add-ons1.css">
+  <style>
+    body { padding: 4px 12px; }
+    .row { margin-bottom: 12px; }
+    label.top { display: block; font-weight: bold; margin-bottom: 4px; }
+    select, input[type=text], input[type=number] { width: 100%; box-sizing: border-box; }
+    .hint { color: #5f6368; font-size: 11px; margin-top: 3px; }
+    .inline label { margin-right: 12px; }
+    #msg { white-space: pre-wrap; margin-top: 8px; }
+    #msg.err { color: #c5221f; }
+    #msg.ok { color: #188038; }
+    code { font-size: 11px; word-break: break-all; }
+  </style>
+</head>
+<body>
+  <div id="loading">Reading the sheet</div>
+  <form id="f" style="display:none" onsubmit="go(event)">
+    <div class="row">Sheet: <b id="sheetName"></b></div>
+
+    <div class="row">
+      <label class="top" for="idCol">ID column</label>
+      <select id="idCol"></select>
+      <div class="hint">The shared ID, for example J001-D.</div>
+    </div>
+
+    <div class="row">
+      <label class="top" for="typeCol">Type column</label>
+      <select id="typeCol"></select>
+    </div>
+
+    <div class="row">
+      <label class="top" for="value">Type value</label>
+      <input type="text" id="value">
+      <div class="hint">Upper and lower case are treated the same.</div>
+    </div>
+
+    <div class="row inline">
+      <label class="top">Match the type value</label>
+      <label><input type="radio" name="match" value="exact"> Exactly</label>
+      <label><input type="radio" name="match" value="contains"> Anywhere in the cell</label>
+    </div>
+
+    <div class="row">
+      <label class="top">Highlight</label>
+      <label><input type="radio" name="rows" value="typed"> Only the rows with that type</label><br>
+      <label><input type="radio" name="rows" value="all"> Every row for that ID</label>
+    </div>
+
+    <div class="row inline">
+      <label class="top">Color</label>
+      <label><input type="radio" name="target" value="row"> The whole row</label>
+      <label><input type="radio" name="target" value="id"> The ID cell only</label>
+    </div>
+
+    <div class="row">
+      <label><input type="checkbox" id="trim"> Ignore stray spaces</label>
+      <div class="hint">Treats "J001-D" and "J001-D " as the same ID. Slower on very large sheets.</div>
+    </div>
+
+    <div class="row" style="display:flex; gap:12px">
+      <div style="flex:1">
+        <label class="top" for="headerRows">Header rows</label>
+        <input type="number" id="headerRows" min="0" step="1">
+      </div>
+      <div style="flex:1">
+        <label class="top" for="color">Highlight color</label>
+        <input type="color" id="color">
+      </div>
+    </div>
+
+    <div>
+      <button type="submit" class="action" id="btn">Add highlighting</button>
+      <button type="button" onclick="google.script.host.close()">Close</button>
+    </div>
+    <div id="msg"></div>
+  </form>
+
+<script>
+  function setRadio(name, v) {
+    var el = document.querySelector('input[name=' + name + '][value=' + v + ']');
+    if (el) el.checked = true;
+  }
+  function getRadio(name) {
+    var el = document.querySelector('input[name=' + name + ']:checked');
+    return el ? el.value : '';
+  }
+  function fillSelect(sel, cols, chosen) {
+    cols.forEach(function (c) {
+      var o = document.createElement('option');
+      o.value = c.letter;
+      o.textContent = c.letter + (c.header ? ' — ' + c.header : '');
+      if (c.letter === chosen) o.selected = true;
+      sel.appendChild(o);
+    });
+  }
+  function show(text, cls) {
+    var m = document.getElementById('msg');
+    m.className = cls;
+    m.innerHTML = '';
+    m.appendChild(document.createTextNode(text));
+  }
+
+  google.script.run
+    .withSuccessHandler(function (info) {
+      var d = info.defaults;
+      document.getElementById('sheetName').textContent = info.sheetName;
+      fillSelect(document.getElementById('idCol'), info.columns, d.idCol);
+      fillSelect(document.getElementById('typeCol'), info.columns, d.typeCol);
+      document.getElementById('value').value = d.value;
+      setRadio('match', d.match);
+      setRadio('rows', d.rows);
+      setRadio('target', d.target);
+      document.getElementById('trim').checked = d.trim;
+      document.getElementById('headerRows').value = d.headerRows;
+      document.getElementById('color').value = d.color;
+      document.getElementById('loading').style.display = 'none';
+      document.getElementById('f').style.display = 'block';
+    })
+    .withFailureHandler(function (e) {
+      document.getElementById('loading').textContent = 'Couldn\'t read the sheet: ' + e.message;
+    })
+    .HRI_getSheetInfo();
+
+  function go(ev) {
+    ev.preventDefault();
+    var btn = document.getElementById('btn');
+    btn.disabled = true;
+    show('Working', '');
+    var opts = {
+      idCol: document.getElementById('idCol').value,
+      typeCol: document.getElementById('typeCol').value,
+      value: document.getElementById('value').value,
+      match: getRadio('match'),
+      rows: getRadio('rows'),
+      target: getRadio('target'),
+      trim: document.getElementById('trim').checked,
+      headerRows: document.getElementById('headerRows').value,
+      color: document.getElementById('color').value
+    };
+    google.script.run
+      .withSuccessHandler(function (r) {
+        btn.disabled = false;
+        if (r.ok) {
+          show(r.message + '\n\nRule used:\n' + r.formula, 'ok');
+        } else {
+          show(r.message, 'err');
+        }
+      })
+      .withFailureHandler(function (e) {
+        btn.disabled = false;
+        show('Something went wrong: ' + e.message, 'err');
+      })
+      .HRI_apply(opts);
+  }
+</script>
+</body>
+</html>

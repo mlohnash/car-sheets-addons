@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html>
+<head>
+<base target="_top">
+<style>
+  body { font-family: Roboto, Arial, sans-serif; font-size: 13px; color: #202124; margin: 0; padding: 14px 16px 70px; }
+  h3 { font-size: 13px; text-transform: uppercase; letter-spacing: .05em; color: #5f6368;
+       margin: 18px 0 8px; border-bottom: 1px solid #e0e0e0; padding-bottom: 4px; }
+  h3:first-child { margin-top: 0; }
+  label { display: block; margin: 8px 0 3px; font-weight: 500; }
+  .hint { color: #5f6368; font-weight: 400; font-size: 12px; }
+  input[type=text], select, textarea { width: 100%; box-sizing: border-box; padding: 6px 7px;
+       border: 1px solid #dadce0; border-radius: 4px; font-family: inherit; font-size: 13px; }
+  textarea { height: 66px; font-family: 'Roboto Mono', Consolas, monospace; font-size: 12px; }
+  .row { display: flex; gap: 10px; }
+  .row > div { flex: 1; }
+  .bar { position: fixed; left: 0; right: 0; bottom: 0; background: #fff; border-top: 1px solid #e0e0e0;
+         padding: 10px 16px; display: flex; align-items: center; gap: 10px; }
+  button { font-family: inherit; font-size: 13px; padding: 7px 16px; border-radius: 4px; border: 1px solid #dadce0;
+           background: #fff; cursor: pointer; }
+  button.primary { background: #1a73e8; border-color: #1a73e8; color: #fff; font-weight: 500; }
+  button[disabled] { opacity: .5; cursor: default; }
+  #status { flex: 1; color: #5f6368; font-size: 12px; }
+  #status.err { color: #c5221f; }
+  .note { background: #f1f3f4; border-radius: 4px; padding: 8px 10px; color: #3c4043; font-size: 12px; margin-top: 6px; }
+  #consent { display: none; }
+  .warnbox { background: #fef7e0; border: 1px solid #f9d071; border-radius: 4px; padding: 10px 12px; margin-bottom: 12px; }
+  .warnbox h4 { margin: 0 0 6px; font-size: 13px; color: #7a5200; }
+  .rule { border-left: 3px solid #f9d071; padding: 4px 0 4px 10px; margin: 8px 0; }
+  .rule b { display: block; }
+  .rule span { color: #5f6368; font-size: 12px; }
+  table.ex { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 6px; }
+  table.ex th { text-align: left; color: #5f6368; font-weight: 500; border-bottom: 1px solid #e0e0e0; padding: 3px 6px 3px 0; }
+  table.ex td { padding: 3px 6px 3px 0; font-family: 'Roboto Mono', Consolas, monospace; }
+</style>
+</head>
+<body>
+
+<div id="form">
+<h3>Current — California Revealed processing metadata</h3>
+<label>Spreadsheet <span class="hint">— blank uses this file</span></label>
+<input type="text" id="curRef" placeholder="Paste a Google Sheets URL or ID, or leave blank"
+       onchange="loadSheets('cur')">
+<label>Tab</label>
+<select id="curSheet"></select>
+
+<h3>Incoming — partner corrections</h3>
+<label>Spreadsheet <span class="hint">— blank uses this file</span></label>
+<input type="text" id="incRef" placeholder="Paste a Google Sheets URL or ID, or leave blank"
+       onchange="loadSheets('inc')">
+<label>Tab</label>
+<select id="incSheet"></select>
+
+<h3>Options</h3>
+<div class="row">
+  <div>
+    <label>Matching key</label>
+    <select id="keyField">
+      <option value="">Auto (first available)</option>
+    </select>
+  </div>
+  <div>
+    <label>Header row</label>
+    <input type="text" id="headerRow" value="1">
+  </div>
+</div>
+
+<label><input type="checkbox" id="translateHeaders" checked style="width:auto;vertical-align:-2px">
+  Translate human-readable headers <span class="hint" id="dictNote"></span></label>
+
+<div class="row">
+  <div>
+    <label>Whitespace</label>
+    <select id="ignoreWhitespace">
+      <option value="none">Exact — a trailing space is a difference</option>
+      <option value="edges">Ignore leading and trailing</option>
+      <option value="all">Ignore leading, trailing and repeated internal</option>
+    </select>
+  </div>
+  <div>
+    <label>Letter case</label>
+    <select id="ignoreCase">
+      <option value="false">Exact</option>
+      <option value="true">Ignore case</option>
+    </select>
+  </div>
+</div>
+
+<label><input type="checkbox" id="multivalueSpacing" checked style="width:auto;vertical-align:-2px">
+  Ignore delimiter spacing in multi-value fields <span class="hint" id="mvNote"></span></label>
+
+<label>Diff cell contents</label>
+<select id="diffCellFormat">
+  <option value="both">Both values — CURRENT / INCOMING</option>
+  <option value="incoming">Incoming value only (paste-ready)</option>
+  <option value="current">Current value only</option>
+</select>
+
+<label>Fields to ignore <span class="hint">— one per line or comma separated</span></label>
+<textarea id="ignoreFields" placeholder="obj_workflow_state__label&#10;obj_notes_to_vendor"></textarea>
+<div class="note">Ignored differences never reach the review sheet, but are counted in the summary.
+Values are always shown and written back exactly as they appear in the source.
+Dates and numbers are normalised so display formatting alone never reads as a change.
+Headers not found in the dictionary are kept as-is, still compared, and flagged in the summary.</div>
+
+</div>
+
+<div id="consent"></div>
+
+<div class="bar">
+  <span id="status">Loading</span>
+  <button id="cancel" onclick="google.script.host.close()">Cancel</button>
+  <button class="primary" id="go" onclick="run()" disabled>Compare</button>
+</div>
+
+<script>
+  var busy = false;
+
+  function setStatus(msg, isErr) {
+    var el = document.getElementById('status');
+    el.textContent = msg;
+    el.className = isErr ? 'err' : '';
+  }
+
+  function fill(sel, names, preferred) {
+    sel.innerHTML = '';
+    names.forEach(function (n) {
+      var o = document.createElement('option');
+      o.value = n; o.textContent = n;
+      sel.appendChild(o);
+    });
+    if (preferred && names.indexOf(preferred) >= 0) sel.value = preferred;
+  }
+
+  function loadSheets(which) {
+    var ref = document.getElementById(which + 'Ref').value;
+    setStatus('Reading tab list');
+    document.getElementById('go').disabled = true;
+    google.script.run
+      .withSuccessHandler(function (info) {
+        fill(document.getElementById(which + 'Sheet'), info.sheets);
+        setStatus(info.name);
+        document.getElementById('go').disabled = busy;
+      })
+      .withFailureHandler(function (e) {
+        setStatus(e.message, true);
+      })
+      .carmd_getSpreadsheetInfo(ref);
+  }
+
+  var agreedRules = null;
+
+  function esc(s) {
+    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  // Nothing has been compared at this point. The run stopped because no key
+  // field pairs a single record, and this is the offer to relax the match.
+  function askConsent(p) {
+    busy = false;
+    var h = '<div class="warnbox"><h4>No records matched</h4>' +
+      'Not one value in <b>' + esc(p.field) + '</b> appears in both sheets, so ' +
+      'nothing could be compared. The values look like the same identifiers ' +
+      'written to different conventions.</div>';
+
+    h += '<h3>Proposed omissions</h3>' +
+      '<p>Applied only when deciding which record is which. Nothing is ' +
+      'removed from your data, and the values written back are unaffected.</p>';
+    p.steps.forEach(function (s) {
+      h += '<div class="rule"><b>' + esc(s.label) + '</b><span>' + esc(s.detail) + '</span></div>';
+    });
+
+    if (p.examples && p.examples.length) {
+      h += '<h3>What that pairs</h3><table class="ex">' +
+        '<tr><th>Current</th><th>Incoming</th><th>Matched as</th></tr>';
+      p.examples.forEach(function (e) {
+        h += '<tr><td>' + esc(e.cur) + '</td><td>' + esc(e.inc) + '</td><td>' + esc(e.as) + '</td></tr>';
+      });
+      h += '</table>';
+    }
+
+    h += '<div class="note">This would pair <b>' + p.overlap + '</b> records (' +
+      p.rate + '% of the smaller sheet, which has ' +
+      Math.min(p.currentRows, p.incomingRows) + ' rows). Every pairing, and ' +
+      'everything that still fails to pair, is listed in a Diff_KeyMatches tab ' +
+      'so you can check them.</div>';
+
+    if (p.ambiguous) {
+      h += '<div class="warnbox"><h4>' + p.ambiguous + ' record' +
+        (p.ambiguous === 1 ? '' : 's') + ' would become ambiguous</h4>' +
+        'After these omissions, ' + p.ambiguous + ' key' +
+        (p.ambiguous === 1 ? '' : 's') + ' no longer identifies a single record. ' +
+        'Those are paired in the order they appear and flagged as ambiguous in ' +
+        'Diff_KeyMatches. Check them before accepting anything they produce.</div>';
+    }
+
+    document.getElementById('form').style.display = 'none';
+    document.getElementById('consent').style.display = 'block';
+    document.getElementById('consent').innerHTML = h;
+
+    agreedRules = p.ruleIds;
+    var go = document.getElementById('go');
+    go.textContent = 'Match on this basis';
+    go.disabled = false;
+    document.getElementById('cancel').textContent = 'No, leave it';
+    setStatus('Review the proposal before agreeing.');
+  }
+
+  function run() {
+    if (busy) return;
+    busy = true;
+    document.getElementById('go').disabled = true;
+    setStatus('Comparing. This can take a minute on large sheets.');
+    var ignore = document.getElementById('ignoreFields').value
+      .split(/[\n,]+/).map(function (s) { return s.trim(); }).filter(Boolean);
+    google.script.run
+      .withSuccessHandler(function (r) {
+        if (r && r.needsConsent) { askConsent(r.proposal); return; }
+        setStatus('Done.');
+        google.script.host.close();
+      })
+      .withFailureHandler(function (e) {
+        busy = false;
+        document.getElementById('go').disabled = false;
+        setStatus(e.message, true);
+      })
+      .carmd_runComparison({
+        currentRef: document.getElementById('curRef').value,
+        currentSheet: document.getElementById('curSheet').value,
+        incomingRef: document.getElementById('incRef').value,
+        incomingSheet: document.getElementById('incSheet').value,
+        keyField: document.getElementById('keyField').value,
+        headerRow: document.getElementById('headerRow').value,
+        diffCellFormat: document.getElementById('diffCellFormat').value,
+        translateHeaders: document.getElementById('translateHeaders').checked,
+        ignoreWhitespace: document.getElementById('ignoreWhitespace').value,
+        ignoreCase: document.getElementById('ignoreCase').value === 'true',
+        multivalueSpacing: document.getElementById('multivalueSpacing').checked,
+        keyRules: agreedRules,
+        ignoreFields: ignore
+      });
+  }
+
+  // Initial load
+  google.script.run
+    .withSuccessHandler(function (d) {
+      var sel = document.getElementById('keyField');
+      d.keyFields.forEach(function (f) {
+        var o = document.createElement('option');
+        o.value = f.field; o.textContent = f.label;
+        sel.appendChild(o);
+      });
+      document.getElementById('translateHeaders').checked = d.translateHeaders;
+      document.getElementById('dictNote').textContent =
+        '— ' + d.dictionarySize + ' field pairs from the CA-R Metadata Dictionary';
+      document.getElementById('ignoreFields').value = d.ignoreFields;
+      document.getElementById('diffCellFormat').value = d.diffCellFormat;
+      document.getElementById('headerRow').value = d.headerRow;
+      document.getElementById('ignoreWhitespace').value = d.ignoreWhitespace;
+      document.getElementById('ignoreCase').value = String(d.ignoreCase);
+      document.getElementById('multivalueSpacing').checked = d.multivalueSpacing;
+      document.getElementById('mvNote').textContent = '— ' + d.multivalueCount + ' fields';
+      loadSheets('cur');
+      loadSheets('inc');
+    })
+    .withFailureHandler(function (e) { setStatus(e.message, true); })
+    .carmd_getDefaults();
+</script>
+</body>
+</html>
